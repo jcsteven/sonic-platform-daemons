@@ -16,6 +16,7 @@ LANE_SPEED_KEY_PREFIX = "speed:"
 VENDOR_KEY = 'vendor_key'
 MEDIA_KEY = 'media_key'
 LANE_SPEED_KEY = 'lane_speed_key'
+MEDIA_LANE_SPEED_KEY = 'media_lane_speed_key'
 SYSLOG_IDENTIFIER = "xcvrd"
 helper_logger = logger.Logger(SYSLOG_IDENTIFIER)
 
@@ -61,6 +62,27 @@ def get_lane_speed_key(physical_port, port_speed, lane_count):
 
     return lane_speed_key
 
+def get_media_lane_speed_key(physical_port, port_speed, lane_count):
+    is_copper = None
+    media_lane_speed = ""
+
+    lane_speed = int(int(port_speed)/int(lane_count))
+    try:
+        sfp = xcvrd.platform_chassis.get_sfp(physical_port)
+        api = sfp.get_xcvr_api()
+        if hasattr(api, 'is_copper') == True:
+            is_copper = api.is_copper()
+
+    except Exception as e:
+        helper_logger.log_notice("Invalid information of xcvrd is_copper api for port {}".format(physical_port))
+
+    if is_copper is True: # For Copper lane_speed =25000, '25000,CR'
+        media_lane_speed = "{},CR".format(lane_speed)
+    elif is_copper is False: # For Fiber lane_speed =25000, '25000'
+        media_lane_speed = "{}".format(lane_speed)
+    else: # For known media lane_speed =25000, '25000,KNOWN'
+        media_lane_speed = "{},UNKNOWN".format(lane_speed)
+    return media_lane_speed
 
 def get_media_settings_key(physical_port, transceiver_dict, port_speed, lane_count):
     sup_compliance_str = '10/40G Ethernet Compliance Code'
@@ -110,11 +132,19 @@ def get_media_settings_key(physical_port, transceiver_dict, port_speed, lane_cou
         media_key += '-' + '*'
 
     lane_speed_key = get_lane_speed_key(physical_port, port_speed, lane_count)
+    media_lane_speed_key = get_media_lane_speed_key(physical_port,port_speed,lane_count)
+    helper_logger.log_notice("JCYU==>A.1 media_type={}".format(media_type))
+    helper_logger.log_notice("JCYU==>A.2 lane_speed_key={}".format(lane_speed_key))
+    helper_logger.log_notice("JCYU==>A.3 vendor_key={}".format(vendor_key))
+    helper_logger.log_notice("JCYU==>A.4 media_key={}".format(media_key))
+    helper_logger.log_notice("JCYU==>A.5 lane_speed_key={}".format(lane_speed_key))
+    helper_logger.log_notice("JCYU==>A.6 media_lane_speed_key={}".format(media_lane_speed_key))
     # return (vendor_key, media_key, lane_speed_key)
     return {
         VENDOR_KEY: vendor_key,
         MEDIA_KEY: media_key,
-        LANE_SPEED_KEY: lane_speed_key
+        LANE_SPEED_KEY: lane_speed_key,
+        MEDIA_LANE_SPEED_KEY: media_lane_speed_key
     }
 
 
@@ -266,6 +296,9 @@ def get_media_settings_value(physical_port, key):
                     return {}
             else:
                 return media_dict[key[MEDIA_KEY]]
+        elif key[MEDIA_LANE_SPEED_KEY] in media_dict:
+            return media_dict[key[MEDIA_LANE_SPEED_KEY]]
+
         elif DEFAULT_KEY in media_dict:
             return media_dict[DEFAULT_KEY]
         elif len(default_dict) != 0:
@@ -323,8 +356,11 @@ def notify_media_setting(logical_port_name, transceiver_dict,
         
         ganged_member_num += 1
         key = get_media_settings_key(physical_port, transceiver_dict, port_speed, lane_count)
+        helper_logger.log_notice("JCYU==>1. physical_port={}  transceiver_dict[physical_port]={}".format(physical_port,transceiver_dict[physical_port]))
+        helper_logger.log_notice("JCYU==>2. logical_port_name={}, port_speed={} lane_count={} key={}".format(logical_port_name, port_speed, lane_count, key))
         helper_logger.log_debug("Retrieving media settings for port {}, operating at a speed of {} with a lane count of {}, using the following lookup keys: {}".format(logical_port_name, port_speed, lane_count, key))
         media_dict = get_media_settings_value(physical_port, key)
+        helper_logger.log_notice("JCYU==>3. media_dict={}".format(media_dict))
 
         if len(media_dict) == 0:
             helper_logger.log_info("Error in obtaining media setting for {}".format(logical_port_name))
